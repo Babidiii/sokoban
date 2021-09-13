@@ -1,5 +1,6 @@
 use ggez;
 use ggez::event::{self, EventHandler};
+use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::DrawParam;
 use ggez::graphics::Image;
 use ggez::graphics::{self, Color};
@@ -7,58 +8,13 @@ use ggez::mint as mi;
 use ggez::{conf, Context, ContextBuilder, GameError, GameResult};
 use specs::{
     join::Join, Builder, Component, ReadStorage, RunNow, System, VecStorage, World, WorldExt,
+    Write, WriteStorage,
 };
 use std::path;
 
 const TILE_WIDTH: f32 = 32.0;
 
-// Game hold all the game state
-struct Game {
-    world: World,
-}
-
-impl Game {
-    pub fn new(world: World) -> Game {
-        Game { world }
-    }
-}
-
-impl EventHandler<GameError> for Game {
-    fn update(&mut self, _ctx: &mut Context) -> GameResult {
-        Ok(())
-    }
-
-    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::clear(ctx, Color::WHITE);
-
-        {
-            let mut rs = RenderingSystem { context: ctx };
-            rs.run_now(&self.world);
-        }
-        graphics::present(ctx)
-    }
-}
-
-fn main() {
-    let mut world = World::new();
-    register_components(&mut world);
-    initialize_level(&mut world);
-
-    // create a game context and event loop
-    let context_builder = ContextBuilder::new("babidiii_sokoban", "sokoban")
-        .window_setup(conf::WindowSetup::default().title("Sokoban!"))
-        .window_mode(conf::WindowMode::default().dimensions(1000.0, 600.0))
-        .add_resource_path(path::PathBuf::from("./resources"));
-
-    let (mut ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
-
-    // Create game state
-    let game = Game::new(world);
-    // let game = &mut Game {};
-
-    event::run(ctx, event_loop, game)
-}
-
+// Specs ECS components
 #[derive(Debug, Component, Clone, Copy)]
 #[storage(VecStorage)]
 pub struct Position {
@@ -89,6 +45,129 @@ pub struct Box {}
 #[storage(VecStorage)]
 pub struct BoxSpot {}
 
+// Resource
+#[derive(Default)]
+pub struct InputQueue {
+    pub keys_pressed: Vec<KeyCode>,
+}
+
+// Game hold all the game state
+struct Game {
+    world: World,
+}
+
+impl Game {
+    pub fn new(world: World) -> Game {
+        Game { world }
+    }
+}
+
+impl EventHandler<GameError> for Game {
+    fn update(&mut self, _ctx: &mut Context) -> GameResult {
+        {
+            let mut is = InputSystem {};
+            is.run_now(&self.world);
+        }
+        Ok(())
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        graphics::clear(ctx, Color::WHITE);
+
+        {
+            let mut rs = RenderingSystem { context: ctx };
+            rs.run_now(&self.world);
+        }
+        graphics::present(ctx)
+    }
+
+    fn key_down_event(
+        &mut self,
+        _context: &mut Context,
+        keycode: KeyCode,
+        _keymod: KeyMods,
+        _repeat: bool,
+    ) {
+        println!("Key pressed: {:?}", keycode);
+
+        let mut input_queue = self.world.write_resource::<InputQueue>();
+        input_queue.keys_pressed.push(keycode);
+    }
+}
+
+// ECS Rendering System
+pub struct RenderingSystem<'a> {
+    context: &'a mut Context,
+}
+
+impl<'a> System<'a> for RenderingSystem<'a> {
+    type SystemData = (ReadStorage<'a, Position>, ReadStorage<'a, Renderable>);
+
+    fn run(&mut self, data: Self::SystemData) {
+        let (position, renderables) = data;
+
+        // Should change that to FlaggedStorage to maintained a sorted Entity list
+        // https://specs.amethyst.rs/docs/tutorials/12_tracked.html
+        let mut rendering_data = (&position, &renderables).join().collect::<Vec<_>>();
+        rendering_data.sort_by_key(|&k| k.0.z);
+
+        for (position, renderable) in rendering_data.iter() {
+            let image = Image::new(self.context, renderable.path.clone()).expect("expected image");
+            let x = position.x as f32 * TILE_WIDTH;
+            let y = position.y as f32 * TILE_WIDTH;
+
+            let draw_params = DrawParam::new().dest(mi::Point2 { x, y });
+            graphics::draw(self.context, &image, draw_params).expect("expected render");
+        }
+    }
+}
+
+pub struct InputSystem;
+
+impl<'a> System<'a> for InputSystem {
+    type SystemData = (
+        Write<'a, InputQueue>,
+        WriteStorage<'a, Position>,
+        ReadStorage<'a, Player>,
+    );
+
+    fn run(&mut self, (mut input_queue, mut positions, players): Self::SystemData) {
+        for (position, _player) in (&mut positions, &players).join() {
+            if let Some(key) = input_queue.keys_pressed.pop() {
+                match key {
+                    KeyCode::Up => position.y -= 1,
+                    KeyCode::Down => position.y += 1,
+                    KeyCode::Right => position.x += 1,
+                    KeyCode::Left => position.x -= 1,
+                    _ => (),
+                }
+            }
+        }
+    }
+}
+
+fn main() {
+    let mut world = World::new();
+    register_components(&mut world);
+    register_resources(&mut world);
+    initialize_level(&mut world);
+
+    // create a game context and event loop
+    let context_builder = ContextBuilder::new("babidiii_sokoban", "sokoban")
+        .window_setup(conf::WindowSetup::default().title("Sokoban!"))
+        .window_mode(conf::WindowMode::default().dimensions(1000.0, 600.0))
+        .add_resource_path(path::PathBuf::from("./resources"));
+
+    let (mut ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
+
+    // Create game state
+    let game = Game::new(world);
+    // let game = &mut Game {};
+
+    event::run(ctx, event_loop, game)
+}
+
+// register components
 pub fn register_components(world: &mut World) {
     world.register::<Position>();
     world.register::<Renderable>();
@@ -96,6 +175,11 @@ pub fn register_components(world: &mut World) {
     world.register::<Wall>();
     world.register::<Box>();
     world.register::<BoxSpot>();
+}
+
+// Registering resources
+pub fn register_resources(world: &mut World) {
+    world.insert(InputQueue::default())
 }
 
 pub fn create_wall(world: &mut World, position: Position) {
@@ -150,30 +234,6 @@ pub fn create_player(world: &mut World, position: Position) {
         })
         .with(Player {})
         .build();
-}
-
-pub struct RenderingSystem<'a> {
-    context: &'a mut Context,
-}
-
-impl<'a> System<'a> for RenderingSystem<'a> {
-    type SystemData = (ReadStorage<'a, Position>, ReadStorage<'a, Renderable>);
-
-    fn run(&mut self, data: Self::SystemData) {
-        let (position, renderables) = data;
-
-        let mut rendering_data = (&position, &renderables).join().collect::<Vec<_>>();
-        rendering_data.sort_by_key(|&k| k.0.z);
-
-        for (position, renderable) in rendering_data.iter() {
-            let image = Image::new(self.context, renderable.path.clone()).expect("expected image");
-            let x = position.x as f32 * TILE_WIDTH;
-            let y = position.y as f32 * TILE_WIDTH;
-
-            let draw_params = DrawParam::new().dest(mi::Point2 { x, y });
-            graphics::draw(self.context, &image, draw_params).expect("expected render");
-        }
-    }
 }
 
 // // Initialize the level

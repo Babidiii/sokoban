@@ -6,13 +6,17 @@ use ggez::graphics::Image;
 use ggez::graphics::{self, Color};
 use ggez::mint as mi;
 use ggez::{conf, Context, ContextBuilder, GameError, GameResult};
+use specs::world::Index;
 use specs::{
-    join::Join, Builder, Component, ReadStorage, RunNow, System, VecStorage, World, WorldExt,
-    Write, WriteStorage,
+    join::Join, Builder, Component, Entities, NullStorage, ReadStorage, RunNow, System, VecStorage,
+    World, WorldExt, Write, WriteStorage,
 };
+use std::collections::HashMap;
 use std::path;
 
 const TILE_WIDTH: f32 = 32.0;
+const MAP_WIDTH: u8 = 8;
+const MAP_HEIGHT: u8 = 9;
 
 // Specs ECS components
 #[derive(Debug, Component, Clone, Copy)]
@@ -28,6 +32,15 @@ pub struct Position {
 pub struct Renderable {
     path: String,
 }
+
+// Markers
+#[derive(Component, Default)]
+#[storage(NullStorage)]
+pub struct Movable;
+
+#[derive(Component, Default)]
+#[storage(NullStorage)]
+pub struct Immovable;
 
 #[derive(Component)]
 #[storage(VecStorage)]
@@ -127,20 +140,81 @@ pub struct InputSystem;
 impl<'a> System<'a> for InputSystem {
     type SystemData = (
         Write<'a, InputQueue>,
+        Entities<'a>,
         WriteStorage<'a, Position>,
         ReadStorage<'a, Player>,
+        ReadStorage<'a, Movable>,
+        ReadStorage<'a, Immovable>,
     );
 
-    fn run(&mut self, (mut input_queue, mut positions, players): Self::SystemData) {
-        for (position, _player) in (&mut positions, &players).join() {
+    fn run(&mut self, data: Self::SystemData) {
+        let (mut input_queue, entities, mut positions, players, movables, immovables) = data;
+        let mut to_move = Vec::new();
+
+        for (position, _player) in (&positions, &players).join() {
             if let Some(key) = input_queue.keys_pressed.pop() {
+                // retrive all the movables position and entity id into an hashmap (x,y) -> entity.id
+                let mov: HashMap<(u8, u8), Index> = (&entities, &movables, &positions)
+                    .join()
+                    .map(|t| ((t.2.x, t.2.y), t.0.id()))
+                    .collect::<HashMap<_, _>>();
+
+                // retrive all the immovables position and entity id into an hashmap (x,y) -> entity.id
+                let immov: HashMap<(u8, u8), Index> = (&entities, &immovables, &positions)
+                    .join()
+                    .map(|t| ((t.2.x, t.2.y), t.0.id()))
+                    .collect::<HashMap<_, _>>();
+
+                // Now iterate through current position to the end of the map
+                // on the correct axis and check what needs to move
+                let (start, end, is_x) = match key {
+                    KeyCode::Up => (position.y, 0, false),
+                    KeyCode::Down => (position.y, MAP_HEIGHT, false),
+                    KeyCode::Left => (position.x, 0, true),
+                    KeyCode::Right => (position.x, MAP_WIDTH, true),
+                    _ => continue,
+                };
+
+                let range = if start < end {
+                    (start..=end).collect::<Vec<_>>()
+                } else {
+                    (end..=start).rev().collect::<Vec<_>>()
+                };
+
+                for x_or_y in range {
+                    // set the position from the range and player fixed value
+                    let pos = if is_x {
+                        (x_or_y, position.y)
+                    } else {
+                        (position.x, x_or_y)
+                    };
+
+                    // get the movable key:value for the specific position within our movable hashmap array
+                    match mov.get(&pos) {
+                        Some(id) => to_move.push((key, id.clone())), // we add the enity in our to_move vect
+                        None => {
+                            // It's not a movable so we will check if it's an immovable
+                            match immov.get(&pos) {
+                                Some(_id) => to_move.clear(), // immovable so we can't move<F2>
+                                None => break,                // we can move because of a gap
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // we move the entities for whom the id was added to to_move vect during the check
+        for (key, id) in to_move {
+            let position = positions.get_mut(entities.entity(id)); // retrive the position of the right enitity for writting purpose
+            if let Some(position) = position {
                 match key {
                     KeyCode::Up => position.y -= 1,
                     KeyCode::Down => position.y += 1,
-                    KeyCode::Right => position.x += 1,
                     KeyCode::Left => position.x -= 1,
+                    KeyCode::Right => position.x += 1,
                     _ => (),
-                }
+                };
             }
         }
     }
@@ -158,7 +232,7 @@ fn main() {
         .window_mode(conf::WindowMode::default().dimensions(1000.0, 600.0))
         .add_resource_path(path::PathBuf::from("./resources"));
 
-    let (mut ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
+    let (ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
 
     // Create game state
     let game = Game::new(world);
@@ -175,6 +249,8 @@ pub fn register_components(world: &mut World) {
     world.register::<Wall>();
     world.register::<Box>();
     world.register::<BoxSpot>();
+    world.register::<Movable>();
+    world.register::<Immovable>();
 }
 
 // Registering resources
@@ -190,6 +266,7 @@ pub fn create_wall(world: &mut World, position: Position) {
             path: "/images/wall.png".to_string(),
         })
         .with(Wall {})
+        .with(Immovable)
         .build();
 }
 
@@ -211,6 +288,7 @@ pub fn create_box(world: &mut World, position: Position) {
             path: "/images/box.png".to_string(),
         })
         .with(Box {})
+        .with(Movable)
         .build();
 }
 
@@ -233,6 +311,7 @@ pub fn create_player(world: &mut World, position: Position) {
             path: "/images/player.png".to_string(),
         })
         .with(Player {})
+        .with(Movable)
         .build();
 }
 

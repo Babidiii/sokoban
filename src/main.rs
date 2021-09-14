@@ -1,4 +1,3 @@
-use ggez;
 use ggez::event::{self, EventHandler};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::{conf, timer, Context, ContextBuilder, GameError, GameResult};

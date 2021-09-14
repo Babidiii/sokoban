@@ -9,7 +9,7 @@ pub struct AudioStore {
 }
 
 impl AudioStore {
-    pub fn play_sound(&mut self, sound: &String, ctx: &mut Context) {
+    pub fn play_sound(&mut self, sound: &str, ctx: &mut Context) {
         let _ = self
             .sounds
             .get_mut(sound)

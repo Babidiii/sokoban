@@ -76,7 +76,7 @@ impl<'a> System<'a> for InputSystem {
 
                     // get the movable key:value for the specific position within our movable hashmap array
                     match mov.get(&pos) {
-                        Some(id) => to_move.push((key, id.clone())), // we add the enity in our to_move vect
+                        Some(id) => to_move.push((key, *id)), // we add the enity in our to_move vect
                         None => {
                             // It's not a movable so we will check if it's an immovable
                             match immov.get(&pos) {
@@ -92,7 +92,7 @@ impl<'a> System<'a> for InputSystem {
                 }
             }
         }
-        if to_move.len() > 0 {
+        if !to_move.is_empty() {
             gameplay.moves_count += 1;
         }
 

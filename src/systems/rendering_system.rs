@@ -2,10 +2,11 @@ use ggez::graphics::{self, Color, DrawParam, Image};
 use ggez::mint as mi;
 use ggez::Context;
 use specs::{join::Join, Read, ReadStorage, System};
+use std::time::Duration;
 
-use crate::components::{Position, Renderable};
+use crate::components::{Position, Renderable, RenderableKind};
 use crate::constants::TILE_WIDTH;
-use crate::resources::Gameplay;
+use crate::resources::{Gameplay, Time};
 
 pub struct RenderingSystem<'a> {
     pub context: &'a mut Context,
@@ -27,18 +28,29 @@ impl RenderingSystem<'_> {
         )
         .expect("expect drawing queued text");
     }
+
+    pub fn get_image(&mut self, renderable: &Renderable, delta: Duration) -> Image {
+        let path_index = match renderable.kind() {
+            RenderableKind::Static => 0,
+            RenderableKind::Animated => ((delta.as_millis() % 1000) / 250) as usize,
+        };
+
+        let image_path = renderable.path(path_index);
+        Image::new(self.context, image_path).expect("expected image")
+    }
 }
 
 impl<'a> System<'a> for RenderingSystem<'a> {
     type SystemData = (
         Read<'a, Gameplay>,
+        Read<'a, Time>,
         ReadStorage<'a, Position>,
         ReadStorage<'a, Renderable>,
     );
 
     fn run(&mut self, data: Self::SystemData) {
         graphics::clear(self.context, Color::WHITE);
-        let (gameplay, position, renderables) = data;
+        let (gameplay, time, position, renderables) = data;
 
         // Should change that to FlaggedStorage to maintained a sorted Entity list
         // https://specs.amethyst.rs/docs/tutorials/12_tracked.html
@@ -46,7 +58,7 @@ impl<'a> System<'a> for RenderingSystem<'a> {
         rendering_data.sort_by_key(|&k| k.0.z);
 
         for (position, renderable) in rendering_data.iter() {
-            let image = Image::new(self.context, renderable.path.clone()).expect("expected image");
+            let image = self.get_image(renderable, time.delta);
             let x = position.x as f32 * TILE_WIDTH;
             let y = position.y as f32 * TILE_WIDTH;
 

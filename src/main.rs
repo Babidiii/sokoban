@@ -34,6 +34,11 @@ impl EventHandler<GameError> for Game {
             let mut is = InputSystem {};
             is.run_now(&self.world);
         }
+        {
+            let mut gss = GameplayStateSystem {};
+            gss.run_now(&self.world);
+        }
+
         Ok(())
     }
 

@@ -6,13 +6,14 @@ use std::collections::HashMap;
 use crate::components::{Immovable, Movable, Player, Position};
 use crate::constants::MAP_HEIGHT;
 use crate::constants::MAP_WIDTH;
-use crate::resources::InputQueue;
+use crate::resources::{Gameplay, InputQueue};
 
 pub struct InputSystem;
 
 impl<'a> System<'a> for InputSystem {
     type SystemData = (
         Write<'a, InputQueue>,
+        Write<'a, Gameplay>,
         Entities<'a>,
         WriteStorage<'a, Position>,
         ReadStorage<'a, Player>,
@@ -21,7 +22,8 @@ impl<'a> System<'a> for InputSystem {
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut input_queue, entities, mut positions, players, movables, immovables) = data;
+        let (mut input_queue, mut gameplay, entities, mut positions, players, movables, immovables) =
+            data;
         let mut to_move = Vec::new();
 
         for (position, _player) in (&positions, &players).join() {
@@ -78,6 +80,9 @@ impl<'a> System<'a> for InputSystem {
                     }
                 }
             }
+        }
+        if to_move.len() > 0 {
+            gameplay.moves_count += 1;
         }
 
         // we move the entities for whom the id was added to to_move vect during the check

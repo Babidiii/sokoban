@@ -4,14 +4,15 @@ use specs::{join::Join, Entities, ReadStorage, System, Write, WriteStorage};
 use std::collections::HashMap;
 
 use crate::components::{Immovable, Movable, Player, Position};
-use crate::constants::MAP_HEIGHT;
-use crate::constants::MAP_WIDTH;
-use crate::resources::{Gameplay, InputQueue};
+use crate::constants::{MAP_HEIGHT, MAP_WIDTH};
+use crate::events::{EntityMoved, Event};
+use crate::resources::{EventQueue, Gameplay, InputQueue};
 
 pub struct InputSystem;
 
 impl<'a> System<'a> for InputSystem {
     type SystemData = (
+        Write<'a, EventQueue>,
         Write<'a, InputQueue>,
         Write<'a, Gameplay>,
         Entities<'a>,
@@ -22,8 +23,17 @@ impl<'a> System<'a> for InputSystem {
     );
 
     fn run(&mut self, data: Self::SystemData) {
-        let (mut input_queue, mut gameplay, entities, mut positions, players, movables, immovables) =
-            data;
+        let (
+            mut event_queue,
+            mut input_queue,
+            mut gameplay,
+            entities,
+            mut positions,
+            players,
+            movables,
+            immovables,
+        ) = data;
+
         let mut to_move = Vec::new();
 
         for (position, _player) in (&positions, &players).join() {
@@ -72,6 +82,7 @@ impl<'a> System<'a> for InputSystem {
                             match immov.get(&pos) {
                                 Some(_id) => {
                                     to_move.clear();
+                                    event_queue.events.push(Event::PlayerHitObstacle {});
                                     break;
                                 } // immovable so we can't move<F2>
                                 None => break, // we can move because of a gap
@@ -97,6 +108,9 @@ impl<'a> System<'a> for InputSystem {
                     _ => (),
                 };
             }
+            event_queue
+                .events
+                .push(Event::EntityMoved(EntityMoved { id }));
         }
     }
 }

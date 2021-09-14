@@ -5,13 +5,16 @@ use ggez::{conf, timer, Context, ContextBuilder, GameError, GameResult};
 use specs::{RunNow, World, WorldExt};
 use std::path;
 
+mod audio;
 mod components;
 mod constants;
 mod entities;
+mod events;
 mod map;
 mod resources;
 mod systems;
 
+use crate::audio::*;
 use crate::components::*;
 use crate::map::*;
 use crate::resources::*;
@@ -42,12 +45,17 @@ impl EventHandler<GameError> for Game {
             let mut time = self.world.write_resource::<Time>();
             time.delta += timer::delta(context);
         }
+
+        {
+            let mut es = EventSystem { context };
+            es.run_now(&self.world);
+        }
         Ok(())
     }
 
-    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+    fn draw(&mut self, context: &mut Context) -> GameResult<()> {
         {
-            let mut rs = RenderingSystem { context: ctx };
+            let mut rs = RenderingSystem { context };
             rs.run_now(&self.world);
         }
         Ok(())
@@ -93,7 +101,8 @@ fn main() {
         .window_mode(conf::WindowMode::default().dimensions(1000.0, 600.0))
         .add_resource_path(path::PathBuf::from("./resources"));
 
-    let (ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
+    let (mut ctx, event_loop) = context_builder.build().expect("Could not create ggez game");
+    initialize_sounds(&mut world, &mut ctx);
 
     // Create game state
     let game = Game::new(world);

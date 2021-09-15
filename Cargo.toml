@@ -11,4 +11,5 @@ opt-level = 2
 [dependencies]
 ggez = "0.6"
 specs = { version = "0.16.1", features = ["specs-derive"] }
+itertools = "0.9.0"
 
